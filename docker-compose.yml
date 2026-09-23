@@ -41,6 +41,7 @@ services:
       # === LLM 配置 ===
       LLM_MODEL: ${LLM_MODEL:-gpt-4}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}    # OpenAI 兼容 API base URL，留空使用官方
 
       # === 向量存储配置 ===
       # ChromaDB 路径 — 未设置时自动按数据库类型隔离: /app/chromadb_data_{db_type}

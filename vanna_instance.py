@@ -82,17 +82,38 @@ class MultiDbVanna(ChromaDB_VectorStore, OpenAI_Chat):
         分别调用两个父类的初始化方法，确保 ChromaDB 向量存储
         和 OpenAI LLM 客户端都正确初始化。
 
+        当 ``config["base_url"]`` 非空时，预构建带自定义 base_url 的
+        ``OpenAI`` 客户端实例，通过 ``client`` 参数传给
+        ``OpenAI_Chat.__init__()``，绕过 Vanna 库对 ``api_base`` 的限制，
+        从而支持任意 OpenAI 兼容的大模型服务（如 DeepSeek、智谱、通义千问等）。
+        ``base_url`` 为空时保持原有行为，直接连接 OpenAI 官方 API。
+
         Args:
             config: 配置字典，包含以下可选键:
                 - ``model``: LLM 模型名称
                 - ``api_key``: OpenAI API Key
+                - ``base_url``: OpenAI 兼容 API 的 base URL（可选）
                 - ``path``: ChromaDB 持久化路径
                 - ``dialect``: SQL 方言
                 - ``temperature``: LLM 生成温度
         """
         config = config or {}
         ChromaDB_VectorStore.__init__(self, config=config)
-        OpenAI_Chat.__init__(self, config=config)
+
+        # 如果配置了 base_url，预构建带自定义 base_url 的 OpenAI 客户端，
+        # 通过 client 参数传入，绕过 OpenAI_Chat 对 api_base 的限制
+        base_url = config.get("base_url", "")
+        if base_url:
+            from openai import OpenAI
+
+            openai_client = OpenAI(
+                api_key=config.get("api_key", ""),
+                base_url=base_url,
+            )
+            OpenAI_Chat.__init__(self, client=openai_client, config=config)
+        else:
+            # 无 base_url 时保持原有行为
+            OpenAI_Chat.__init__(self, config=config)
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +171,7 @@ def create_vanna(config: Optional[AppConfig] = None) -> VannaBase:
         # LLM 配置
         "model": llm_config.model,
         "api_key": llm_config.api_key,
+        "base_url": llm_config.base_url,
         "temperature": llm_config.temperature,
         # 向量存储配置 — 按数据库类型隔离训练数据
         "path": vs_config.path,
@@ -186,6 +208,7 @@ def create_vanna_from_env(
     db_password: Optional[str] = None,
     llm_model: Optional[str] = None,
     openai_api_key: Optional[str] = None,
+    llm_base_url: Optional[str] = None,
     chromadb_path: Optional[str] = None,
 ) -> VannaBase:
     """从环境变量或显式参数创建 Vanna 实例。
@@ -201,6 +224,8 @@ def create_vanna_from_env(
         db_password: 数据库密码，默认读 DB_PASSWORD 环境变量。
         llm_model: LLM 模型名，默认读 LLM_MODEL 环境变量。
         openai_api_key: OpenAI API Key，默认读 OPENAI_API_KEY 环境变量。
+        llm_base_url: OpenAI 兼容 API 的 base URL，默认读 LLM_BASE_URL 环境变量。
+            为空时使用 OpenAI 官方地址。
         chromadb_path: ChromaDB 路径，默认自动按数据库类型隔离。
 
     Returns:
@@ -224,6 +249,7 @@ def create_vanna_from_env(
     llm = LLMConfig(
         model=llm_model or os.getenv("LLM_MODEL", "gpt-4"),
         api_key=openai_api_key or os.getenv("OPENAI_API_KEY", ""),
+        base_url=llm_base_url or os.getenv("LLM_BASE_URL", ""),
     )
 
     # ChromaDB 路径：优先显式参数 > 环境变量 > 按类型自动隔离

@@ -87,12 +87,14 @@ class LLMConfig:
 
     Attributes:
         model: 模型名称（如 gpt-4, gpt-3.5-turbo）。
-        api_key: OpenAI API Key。
+        api_key: OpenAI API Key（或其他兼容 LLM 的 API Key）。
+        base_url: OpenAI 兼容 API 的 Base URL，空字符串表示使用 OpenAI 官方地址。
         temperature: 生成温度，控制随机性，默认 0.7。
     """
 
     model: str = "gpt-4"
     api_key: str = ""
+    base_url: str = ""
     temperature: float = 0.7
 
 
@@ -241,6 +243,7 @@ def _load_llm_config(yaml_data: dict[str, Any]) -> LLMConfig:
     return LLMConfig(
         model=llm_yaml.get("model") or _get_env("LLM_MODEL", "gpt-4"),
         api_key=llm_yaml.get("api_key") or _get_env("OPENAI_API_KEY", ""),
+        base_url=llm_yaml.get("base_url") or _get_env("LLM_BASE_URL", ""),
         temperature=llm_yaml.get("temperature", 0.7),
     )
 
@@ -369,6 +372,7 @@ database:
 llm:
   model: gpt-4
   api_key: ${OPENAI_API_KEY}
+  base_url: ${LLM_BASE_URL}    # OpenAI 兼容 API base URL，留空使用 OpenAI 官方
   temperature: 0.7
 
 # --- 向量存储配置 ---
@@ -404,6 +408,7 @@ DB_PASSWORD=your_password
 # --- LLM 配置 ---
 LLM_MODEL=gpt-4
 OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
+LLM_BASE_URL=                   # 留空使用 OpenAI 官方，或填入兼容 API 地址
 
 # --- 向量存储配置 ---
 # 不设置时自动按数据库类型隔离: ./chromadb_data_{db_type}

@@ -21,6 +21,7 @@
 8. [Docker 部署](#8-docker-部署)
 9. [API 示例](#9-api-示例)
 10. [FAQ](#10-faq)
+11. [自定义大模型接入指南](#11-自定义大模型接入指南)
 
 ---
 
@@ -172,6 +173,9 @@ DB_PASSWORD=your_password
 
 LLM_MODEL=gpt-4
 OPENAI_API_KEY=sk-your-api-key
+
+# 如需接入自定义大模型（如 DeepSeek、智谱等），取消下方注释并设置：
+# LLM_BASE_URL=https://api.deepseek.com/v1
 ```
 
 ### 启动服务
@@ -232,7 +236,8 @@ curl http://localhost:8000/vanna/mcp
 | `DB_USER` | ✅ | 按类型自动 | 数据库用户名（未设置时按 DB_TYPE 自动填充默认用户） |
 | `DB_PASSWORD` | ✅ | - | 数据库密码 |
 | `LLM_MODEL` | ✅ | `gpt-4` | LLM 模型名称 |
-| `OPENAI_API_KEY` | ✅ | - | OpenAI API Key |
+| `OPENAI_API_KEY` | ✅ | - | OpenAI API Key（或其他兼容 LLM 的 API Key） |
+| `LLM_BASE_URL` | ❌ | - | OpenAI 兼容 API 的 Base URL，留空使用 OpenAI 官方地址。设置后可接入 DeepSeek、智谱、通义千问、Ollama 等任意 OpenAI 兼容模型 |
 | `CHROMADB_PATH` | ❌ | 自动隔离 | ChromaDB 路径，未设置时自动为 `./chromadb_data_{db_type}` |
 | `MCP_HOST` | ❌ | `0.0.0.0` | MCP 服务监听地址 |
 | `MCP_PORT` | ❌ | `8000` | MCP 服务监听端口 |
@@ -271,6 +276,7 @@ database:
 llm:
   model: gpt-4
   api_key: ${OPENAI_API_KEY}
+  base_url: ${LLM_BASE_URL}    # 可选，留空使用 OpenAI 官方，或填入兼容 API 地址
   temperature: 0.7
 
 vector_store:
@@ -934,6 +940,8 @@ DB_TYPE=dm         # 切换到达梦
 
 Vanna 支持多种 LLM：OpenAI (GPT-4/GPT-3.5)、Anthropic (Claude)、Ollama (本地模型)、Azure OpenAI、Google Gemini、智谱 AI、DeepSeek 等。当前 MCP Server 默认使用 OpenAI 兼容接口，通过 `LLM_MODEL` 和 `OPENAI_API_KEY` 配置。
 
+**接入自定义大模型**：设置 `LLM_BASE_URL` 环境变量即可接入任意 OpenAI 兼容的大模型服务（如 DeepSeek、智谱、通义千问、Ollama 等），详见 [自定义大模型接入指南](#11-自定义大模型接入指南)。
+
 ### Q6: Docker 容器中如何使用瀚高定制版 psycopg2？
 
 有两种方式：
@@ -986,6 +994,99 @@ tar czf chromadb_backup.tar.gz chromadb_data*/
 - 默认大小写敏感（大写）
 
 Vanna 的 `dialect` 会自动设为 `"DM"`，LLM 生成 SQL 时会参考此方言。
+
+---
+
+## 11. 自定义大模型接入指南
+
+Vanna MCP Server 支持通过 `LLM_BASE_URL` 配置接入任意 OpenAI 兼容的大模型服务。只需设置 Base URL、API Key 和模型名称即可，无需修改任何代码。
+
+### 11.1 配置方式
+
+通过环境变量配置（推荐）：
+
+```bash
+# .env 文件
+LLM_MODEL=deepseek-chat
+OPENAI_API_KEY=sk-your-deepseek-api-key
+LLM_BASE_URL=https://api.deepseek.com/v1
+```
+
+或通过 YAML 配置文件：
+
+```yaml
+# config.yaml
+llm:
+  model: deepseek-chat
+  api_key: ${OPENAI_API_KEY}
+  base_url: https://api.deepseek.com/v1
+  temperature: 0.7
+```
+
+> **原理**：Vanna 库的 `OpenAI_Chat` 类在创建 OpenAI 客户端时不支持 `base_url` 参数。本项目通过在 `MultiDbVanna.__init__()` 中预构建带 `base_url` 的 `OpenAI` 客户端实例，通过 `client` 参数注入，绕过此限制。
+
+### 11.2 常见模型配置示例
+
+| 模型服务 | Base URL | 模型名称示例 | 获取 API Key |
+|----------|----------|-------------|-------------|
+| **DeepSeek** | `https://api.deepseek.com/v1` | `deepseek-chat` | [平台](https://platform.deepseek.com) |
+| **智谱 GLM** | `https://open.bigmodel.cn/api/paas/v4` | `glm-4` | [平台](https://open.bigmodel.cn) |
+| **通义千问** | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus` | [平台](https://dashscope.console.aliyun.com) |
+| **Moonshot Kimi** | `https://api.moonshot.cn/v1` | `moonshot-v1-8k` | [平台](https://platform.moonshot.cn) |
+| **Ollama (本地)** | `http://localhost:11434/v1` | `llama3` | 无需 Key |
+| **vLLM (本地)** | `http://localhost:8000/v1` | 自定义 | 无需 Key |
+| **OpenAI 官方** | （留空或不设置） | `gpt-4` | [平台](https://platform.openai.com) |
+
+### 11.3 各模型详细配置
+
+#### DeepSeek
+
+```bash
+LLM_MODEL=deepseek-chat
+OPENAI_API_KEY=sk-your-deepseek-api-key
+LLM_BASE_URL=https://api.deepseek.com/v1
+```
+
+#### 智谱 GLM
+
+```bash
+LLM_MODEL=glm-4
+OPENAI_API_KEY=your-zhipu-api-key
+LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+```
+
+#### 通义千问
+
+```bash
+LLM_MODEL=qwen-plus
+OPENAI_API_KEY=sk-your-dashscope-api-key
+LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+```
+
+#### Moonshot Kimi
+
+```bash
+LLM_MODEL=moonshot-v1-8k
+OPENAI_API_KEY=sk-your-moonshot-api-key
+LLM_BASE_URL=https://api.moonshot.cn/v1
+```
+
+#### Ollama（本地部署）
+
+```bash
+LLM_MODEL=llama3
+OPENAI_API_KEY=ollama          # Ollama 不校验 Key，填任意值即可
+LLM_BASE_URL=http://localhost:11434/v1
+```
+
+> **注意**：使用 Ollama 本地模型时，需先通过 `ollama pull <model>` 下载模型。API Key 填任意非空值即可。
+
+### 11.4 注意事项
+
+1. **向后兼容**：不设置 `LLM_BASE_URL` 时，行为与之前完全一致，默认连接 OpenAI 官方 API
+2. **Embedding 不受影响**：本项目使用 ChromaDB 内置的本地 Embedding 模型，`base_url` 仅影响 LLM 对话，不影响向量检索
+3. **模型兼容性**：所选模型需支持 OpenAI Chat Completions API 格式（`/v1/chat/completions`）
+4. **Docker 部署**：在 `docker-compose.yml` 中通过 `LLM_BASE_URL: ${LLM_BASE_URL:-}` 传递，在 `.env` 中设置即可
 
 ---
 
