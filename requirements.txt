@@ -1,0 +1,46 @@
+# ============================================================
+# Vanna MCP Server — 项目依赖
+# ============================================================
+
+# --- Vanna 核心（含 ChromaDB 向量存储 + OpenAI LLM 集成）---
+# 安装 vanna 时通过 extras 引入 chromadb 和 openai 依赖
+vanna[chromadb,openai]>=0.7.0
+
+# --- 数据库驱动 ---
+# MySQL: PyMySQL 驱动
+PyMySQL>=1.1.0
+
+# PostgreSQL: psycopg2 驱动（标准 PyPI 版本）
+# 注意：连接瀚高数据库时，必须替换为瀚高定制版 psycopg2（非此标准版）
+# 瀚高定制版下载：https://www.highgo.com/down_main.html
+# 定制版基于 psycopg2 2.9.9，链接瀚高定制版 libpq，支持 SM3 国密认证
+psycopg2-binary>=2.9.9
+
+# 达梦数据库: dmPython 驱动（PyPI 包名 dmPython，导入名 dmPython）
+# whl 包内置 DPI 运行时，无需额外安装达梦数据库软件
+dmPython>=2.5.38
+
+# --- LLM / AI ---
+openai>=1.0.0
+
+# --- 向量存储 ---
+chromadb>=0.5.0
+
+# --- 数据处理 ---
+pandas>=2.0.0
+
+# --- 配置管理 ---
+PyYAML>=6.0
+
+# --- MCP Server ---
+# FastMCP 服务端，用于将 Vanna 能力封装为 MCP 工具
+mcp>=1.0.0
+
+# --- HTTP 服务器（MCP streamable-http 传输）---
+uvicorn>=0.30.0
+starlette>=0.37.0
+
+# --- 工具库 ---
+tabulate>=0.9.0        # DataFrame.to_markdown() 依赖
+sqlparse>=0.5.0        # SQL 格式化
+plotly>=5.18.0         # 数据可视化（Vanna 内置功能）

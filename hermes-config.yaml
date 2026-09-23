@@ -1,0 +1,112 @@
+# ============================================================
+# Hermes-Agent MCP 客户端配置示例
+# 将以下配置添加到 ~/.hermes/config.yaml 的 mcp_servers 字段下
+# 完整配置文件参考: https://hermes-agent.nousresearch.com/docs/user-guide/configuration
+# ============================================================
+
+mcp_servers:
+  # ──────────────────────────────────────────────────────────
+  # Vanna MCP Server — HTTP 传输方式（推荐生产部署）
+  # ──────────────────────────────────────────────────────────
+  vanna:
+    # 使用 streamable-http 传输方式连接远程 Vanna MCP Server
+    url: "http://127.0.0.1:8000/vanna/mcp"
+
+    # 请求超时（秒）— Vanna ask 操作涉及 LLM 调用 + SQL 执行，建议适当加大
+    timeout: 120
+
+    # 初始连接超时（秒）
+    connect_timeout: 30
+
+    # 启用该服务器
+    enabled: true
+
+    # 工具过滤配置
+    tools:
+      # 白名单模式 — 仅注册以下工具（推荐，最小权限原则）
+      include:
+        - ask
+        - generate_sql
+        - run_sql
+        - train_sql
+        - train_ddl
+        - train_documentation
+        - get_training_data
+        - remove_training_data
+        - generate_question
+      # 禁用资源包装器（Vanna MCP Server 通过 tools 提供全部能力）
+      resources: false
+      # 禁用提示包装器
+      prompts: false
+
+  # ──────────────────────────────────────────────────────────
+  # 以下为可选配置示例（按需选用）
+  # ──────────────────────────────────────────────────────────
+
+  # 示例 1: 带认证的远程部署
+  # vanna_remote:
+  #   url: "https://vanna-mcp.internal.example.com/vanna/mcp"
+  #   headers:
+  #     Authorization: "Bearer ${VANNA_MCP_TOKEN}"
+  #   timeout: 120
+  #   connect_timeout: 30
+  #   tools:
+  #     include:
+  #       - ask
+  #       - generate_sql
+  #       - run_sql
+  #     resources: false
+  #     prompts: false
+
+  # 示例 2: 黑名单模式 — 排除危险工具
+  # vanna_strict:
+  #   url: "http://127.0.0.1:8000/vanna/mcp"
+  #   tools:
+  #     # 排除 run_sql 和 remove_training_data，防止直接执行/删除操作
+  #     exclude:
+  #       - run_sql
+  #       - remove_training_data
+  #     resources: false
+  #     prompts: false
+
+  # 示例 3: 延迟启动（首次调用时才连接）
+  # vanna_lazy:
+  #   url: "http://127.0.0.1:8000/vanna/mcp"
+  #   lazy: true
+  #   tools:
+  #     include:
+  #       - ask
+  #       - generate_sql
+
+# ============================================================
+# 工具命名规则说明
+# ============================================================
+# Hermes-Agent 为 MCP 工具添加前缀以避免与内置工具名称冲突：
+#   命名规则: mcp_<server_name>_<tool_name>
+#
+# 例如，上面的 vanna 服务器配置后，注册的工具名称为：
+#   mcp_vanna_ask                 — 自然语言问数（生成 SQL + 执行 + 返回结果）
+#   mcp_vanna_generate_sql        — 生成 SQL（仅生成，不执行）
+#   mcp_vanna_run_sql             — 执行 SQL
+#   mcp_vanna_train_sql           — 训练 Question-SQL 对
+#   mcp_vanna_train_ddl           — 训练 DDL（表结构）
+#   mcp_vanna_train_documentation — 训练文档（业务上下文）
+#   mcp_vanna_get_training_data   — 获取所有训练数据
+#   mcp_vanna_remove_training_data— 删除训练数据
+#   mcp_vanna_generate_question   — 从 SQL 反推自然语言问题
+#
+# 实用工具（能力感知，仅当服务器支持时注册）：
+#   mcp_vanna_list_resources      — 列出资源
+#   mcp_vanna_read_resource       — 读取资源
+
+# ============================================================
+# 管理命令
+# ============================================================
+# 配置完成后可使用以下 Hermes CLI 命令管理 MCP 服务器：
+#   hermes mcp test vanna          — 测试 Vanna MCP 服务器连接
+#   hermes mcp                     — 交互式 MCP 管理器
+#   /reload-mcp                    — 重新加载 MCP 配置（在 Hermes 对话中）
+#
+# 环境变量引用：
+#   配置文件中支持 ${VAR_NAME} 语法引用 ~/.hermes/.env 中的环境变量
+#   敏感信息（API Key、数据库密码等）建议放在 .env 文件中

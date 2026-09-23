@@ -1,0 +1,114 @@
+# ============================================================
+# Vanna MCP Server — Docker Compose 编排文件
+# 多数据库智能问数 MCP 服务
+# ============================================================
+# 使用方式：
+#   docker-compose up -d          — 后台启动
+#   docker-compose logs -f        — 查看日志
+#   docker-compose down           — 停止并移除容器
+#   docker-compose build          — 重新构建镜像
+# ============================================================
+
+version: "3.8"
+
+services:
+  vanna-mcp:
+    # 构建配置
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # 容器名称
+    container_name: vanna-mcp-server
+
+    # 重启策略 — 异常退出后自动重启
+    restart: unless-stopped
+
+    # 端口映射 — 宿主机:容器
+    ports:
+      - "${MCP_PORT:-8000}:8000"
+
+    # 环境变量配置
+    environment:
+      # === 数据库配置 ===
+      DB_TYPE: ${DB_TYPE:-highgo}
+      DB_HOST: ${DB_HOST:-127.0.0.1}
+      DB_PORT: ${DB_PORT:-5866}
+      DB_NAME: ${DB_NAME:-highgo}
+      DB_USER: ${DB_USER:-sysdba}
+      DB_PASSWORD: ${DB_PASSWORD}
+
+      # === LLM 配置 ===
+      LLM_MODEL: ${LLM_MODEL:-gpt-4}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+      # === 向量存储配置 ===
+      # ChromaDB 路径 — 未设置时自动按数据库类型隔离: /app/chromadb_data_{db_type}
+      CHROMADB_PATH: /app/chromadb_data
+
+      # === MCP Server 配置 ===
+      MCP_HOST: ${MCP_HOST:-0.0.0.0}
+      MCP_PORT: ${MCP_PORT:-8000}
+
+      # === 高级配置（可选）===
+      # uvicorn worker 数量
+      # MCP_WORKERS: 4
+
+      # 模拟模式（接口测试时设为 1）
+      # VANNA_MOCK_MODE: 0
+
+    # 数据卷挂载
+    volumes:
+      # ChromaDB 持久化存储 — RAG 训练数据（DDL、文档、Q-SQL 对）
+      # 使用命名卷，数据在容器删除后仍然保留
+      - chromadb_data:/app/chromadb_data
+
+      # 瀚高定制版驱动挂载（如需 SM3 认证）
+      # 取消下方注释，并将瀚高定制版 psycopg2 和 libpq.so.5 放入 ./highgo-drivers/ 目录
+      # - ./highgo-drivers/psycopg2:/usr/local/lib/python3.11/site-packages/psycopg2
+      # - ./highgo-drivers/libpq.so.5:/usr/lib/libpq.so.5
+
+      # YAML 配置文件挂载（可选，设置后优先于环境变量）
+      # - ./config.yaml:/app/config.yaml:ro
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/vanna/mcp"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    # 日志配置
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # 网络配置
+    networks:
+      - vanna-net
+
+    # 资源限制（可选，根据实际需求调整）
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 2G
+    #       cpus: "2.0"
+
+# ============================================================
+# 命名卷定义
+# ============================================================
+volumes:
+  # ChromaDB 向量数据库持久化存储
+  # 存储 RAG 训练数据：DDL 语句、业务文档、Question-SQL 示例对
+  chromadb_data:
+    driver: local
+
+# ============================================================
+# 网络定义
+# ============================================================
+networks:
+  vanna-net:
+    driver: bridge

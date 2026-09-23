@@ -1,0 +1,87 @@
+# ============================================================
+# Vanna MCP Server — Dockerfile
+# 多数据库智能问数 MCP 服务（MySQL / PostgreSQL / 瀚高 / 达梦）
+# ============================================================
+
+FROM python:3.11-slim
+
+# 设置工作目录
+WORKDIR /app
+
+# 设置环境变量 — 优化 pip 安装、禁用字节码缓存以减小镜像体积
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    LD_LIBRARY_PATH=/usr/lib:/usr/local/lib:$LD_LIBRARY_PATH
+
+# 安装系统级依赖
+# - libpq-dev: PostgreSQL 开发库（psycopg2 编译依赖）
+# - gcc: C 编译器（部分 Python 包需要编译）
+# - curl: 健康检查工具
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    gcc \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# ============================================================
+# 安装 Python 依赖
+# ============================================================
+# 先复制 requirements.txt（利用 Docker 层缓存）
+COPY requirements.txt .
+
+RUN pip install -r requirements.txt
+
+# ============================================================
+# 瀚高定制版 psycopg2 特殊处理
+# ============================================================
+# ⚠️ 重要：标准 psycopg2-binary 不支持瀚高 SM3 国密认证！
+#
+# 如需连接启用 SM3 认证的瀚高数据库，必须使用瀚高定制版 psycopg2：
+#
+# 方式 A — 容器内手动安装（推荐）：
+#   1. 从瀚高官方下载定制版 psycopg2 驱动包
+#     下载地址: https://pan.baidu.com/s/1xuz6uJz0utRgKWecXhpOiA?pwd=o0tj
+#     技术支持: https://support.highgo.com
+#   2. 将驱动包放入项目目录 highgo-drivers/ 下
+#   3. 取消下方注释，替换标准 psycopg2-binary
+#
+# COPY highgo-drivers/psycopg2 /usr/local/lib/python3.11/site-packages/psycopg2
+# COPY highgo-drivers/libpq.so.5 /usr/lib/
+# RUN pip uninstall -y psycopg2-binary && \
+#     python -c "import psycopg2; print('HighGo psycopg2:', psycopg2.__version__)"
+#
+# 方式 B — 使用瀚高提供的 Docker 基础镜像：
+#   FROM registry.highgo.com/highgo/python:3.11-slim
+#   （联系瀚高技术支持获取镜像地址）
+#
+# 注意：
+#   - 瀚高定制版 psycopg2 基于 psycopg2 2.9.9
+#   - 必须同时安装瀚高定制版 libpq.so.5
+#   - LD_LIBRARY_PATH 需指向瀚高 libpq 路径（已在上方 ENV 中配置）
+#   - Python 层面无需额外配置，SM3 认证由 libpq C 层自动处理
+
+# ============================================================
+# 复制项目源码
+# ============================================================
+COPY server.py vanna_instance.py config.py database_adapter.py ./
+COPY run.sh ./
+
+# 设置启动脚本权限
+RUN chmod +x run.sh
+
+# 创建非 root 用户（安全最佳实践）
+RUN useradd -m -u 1000 vanna && chown -R vanna:vanna /app
+USER vanna
+
+# 暴露 MCP 服务端口
+EXPOSE 8000
+
+# 健康检查 — 通过 HTTP 请求检测服务是否正常运行
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=15s \
+    CMD curl -f http://localhost:8000/vanna/mcp || exit 1
+
+# 启动命令 — 使用 uvicorn 多 worker 部署
+# server:app 指向 server.py 文件中的 app 变量（Starlette ASGI 应用）
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
