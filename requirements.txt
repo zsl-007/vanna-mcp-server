@@ -34,7 +34,7 @@ PyYAML>=6.0
 
 # --- MCP Server ---
 # FastMCP 服务端，用于将 Vanna 能力封装为 MCP 工具
-mcp>=1.0.0
+mcp>=1.0.0,<2.0.0
 
 # --- HTTP 服务器（MCP streamable-http 传输）---
 uvicorn>=0.30.0
