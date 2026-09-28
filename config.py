@@ -39,12 +39,12 @@ class DatabaseConfig:
     """数据库连接配置。
 
     Attributes:
-        type: 数据库类型，可选值 mysql / postgresql / highgo / dm。
-        host: 数据库主机地址。
-        port: 数据库端口。
-        name: 数据库名称（DM 中为 schema 名）。
-        user: 数据库用户名。
-        password: 数据库密码。
+        type: 数据库类型，可选值 mysql / postgresql / highgo / dm / sqlite / sqlserver。
+        host: 数据库主机地址（SQLite 不需要）。
+        port: 数据库端口（SQLite 无端口概念，设为 0）。
+        name: 数据库名称（DM 中为 schema 名，SQLite 中为文件路径）。
+        user: 数据库用户名（SQLite 不需要）。
+        password: 数据库密码（SQLite 不需要）。
     """
 
     type: str = "postgresql"
@@ -56,11 +56,18 @@ class DatabaseConfig:
 
     def __post_init__(self) -> None:
         """根据数据库类型设置默认端口和用户名（未显式配置时）。"""
+        # SQLite 特殊处理：无端口和用户概念
+        if self.type.lower() == "sqlite":
+            self.port = 0
+            self.user = ""  # SQLite 无用户概念，强制清空
+            return  # SQLite 不需要默认端口/用户填充
+
         defaults: dict[str, tuple[int, str]] = {
             "mysql": (3306, "root"),
             "postgresql": (5432, "postgres"),
             "highgo": (5866, "sysdba"),
             "dm": (5236, "SYSDBA"),
+            "sqlserver": (1433, "sa"),
         }
         default_port, default_user = defaults.get(self.type.lower(), (5432, "postgres"))
         if self.port == 0 or self.port == 5432:
@@ -361,12 +368,12 @@ EXAMPLE_YAML = """\
 
 # --- 数据库配置 ---
 database:
-  type: highgo              # mysql | postgresql | highgo | dm
+  type: highgo              # mysql | postgresql | highgo | dm | sqlite | sqlserver
   host: 192.168.1.100
-  port: 5866                # MySQL:3306  PG:5432  HighGo:5866  DM:5236
-  name: highgo              # 数据库名（DM 中为 schema 名）
-  user: sysdba              # MySQL:root  PG:postgres  HighGo:sysdba  DM:SYSDBA
-  password: ${DB_PASSWORD}  # 支持环境变量引用，避免明文存储
+  port: 5866                # MySQL:3306  PG:5432  HighGo:5866  DM:5236  SQLServer:1433  SQLite:无
+  name: highgo              # 数据库名（DM 中为 schema 名，SQLite 中为文件路径如 /path/to/data.db）
+  user: sysdba              # MySQL:root  PG:postgres  HighGo:sysdba  DM:SYSDBA  SQLServer:sa  SQLite:无
+  password: ${DB_PASSWORD}  # 支持环境变量引用，避免明文存储（SQLite 不需要）
 
 # --- LLM 大语言模型配置 ---
 llm:
@@ -398,12 +405,12 @@ EXAMPLE_ENV = """\
 # ============================================================
 
 # --- 数据库配置 ---
-DB_TYPE=highgo               # mysql | postgresql | highgo | dm
+DB_TYPE=highgo               # mysql | postgresql | highgo | dm | sqlite | sqlserver
 DB_HOST=192.168.1.100
-DB_PORT=5866                 # MySQL:3306  PG:5432  HighGo:5866  DM:5236
-DB_NAME=highgo
-DB_USER=sysdba               # MySQL:root  PG:postgres  HighGo:sysdba  DM:SYSDBA
-DB_PASSWORD=your_password
+DB_PORT=5866                 # MySQL:3306  PG:5432  HighGo:5866  DM:5236  SQLServer:1433  SQLite:无
+DB_NAME=highgo               # SQLite 中为文件路径如 /path/to/data.db（:memory: 为内存数据库）
+DB_USER=sysdba               # MySQL:root  PG:postgres  HighGo:sysdba  DM:SYSDBA  SQLServer:sa  SQLite:无
+DB_PASSWORD=your_password    # SQLite 不需要密码
 
 # --- LLM 配置 ---
 LLM_MODEL=gpt-4

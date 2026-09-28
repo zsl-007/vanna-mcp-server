@@ -2,7 +2,7 @@
 多数据库适配器工厂模块。
 
 提供统一的 ``run_sql`` 接口，支持 MySQL、PostgreSQL、瀚高（HighGo SM3 国密认证）、
-达梦（DM Oracle 兼容）四种数据库后端。
+达梦（DM Oracle 兼容）、SQLite、SQL Server 六种数据库后端。
 
 采用工厂模式 + 策略模式：``DatabaseAdapterFactory.create(db_type, config)``
 根据数据库类型动态创建适配器，每个适配器封装各自的连接逻辑和方言信息。
@@ -62,6 +62,7 @@ def _is_select_query(sql: str) -> bool:
     """判断 SQL 语句是否为查询类型（返回结果集）。
 
     支持 SELECT、WITH (CTE)、EXPLAIN、SHOW、DESCRIBE 等语句。
+    同时支持 SQLite 的 PRAGMA 语句和 SQL Server 的 EXEC / EXECUTE 语句。
     会去除前导注释和空白字符后再判断。
 
     Args:
@@ -84,7 +85,12 @@ def _is_select_query(sql: str) -> bool:
         stripped = stripped[end_idx + 2:].strip()
 
     upper = stripped.upper()
-    select_keywords = ("SELECT", "WITH", "EXPLAIN", "SHOW", "DESCRIBE", "DESC")
+    select_keywords = (
+        "SELECT", "WITH", "EXPLAIN", "SHOW", "DESCRIBE", "DESC",
+        "PRAGMA",       # SQLite 元数据查询
+        "EXEC",         # SQL Server 存储过程执行
+        "EXECUTE",      # SQL Server 存储过程执行（完整形式）
+    )
     return any(upper.startswith(kw) for kw in select_keywords)
 
 
@@ -120,6 +126,8 @@ class DatabaseAdapterFactory:
         - ``postgresql``: PostgreSQL，使用 psycopg2 驱动
         - ``highgo``: 瀚高数据库，使用瀚高定制版 psycopg2 驱动（SM3 国密认证）
         - ``dm``: 达梦数据库，使用 dmPython 驱动（Oracle 兼容方言）
+        - ``sqlite``: SQLite，使用 Python 标准库 sqlite3 模块（无需额外驱动）
+        - ``sqlserver``: SQL Server，使用 pymssql 驱动（纯 Python，无需 ODBC）
     """
 
     # 数据库类型 → 默认端口映射
@@ -128,6 +136,8 @@ class DatabaseAdapterFactory:
         "postgresql": 5432,
         "highgo": 5866,
         "dm": 5236,
+        "sqlite": 0,       # SQLite 无端口，使用文件路径
+        "sqlserver": 1433,  # SQL Server 默认端口
     }
 
     @staticmethod
@@ -136,13 +146,13 @@ class DatabaseAdapterFactory:
 
         Args:
             db_type: 数据库类型（不区分大小写），
-                可选值: mysql / postgresql / highgo / dm。
+                可选值: mysql / postgresql / highgo / dm / sqlite / sqlserver。
             config: 连接配置字典，必须包含以下键:
-                - ``host``: 主机地址
-                - ``port``: 端口号（可由工厂补全默认值）
-                - ``database``: 数据库名
-                - ``user``: 用户名
-                - ``password``: 密码
+                - ``host``: 主机地址（SQLite 不需要）
+                - ``port``: 端口号（可由工厂补全默认值，SQLite 无端口）
+                - ``database``: 数据库名（SQLite 中为文件路径）
+                - ``user``: 用户名（SQLite 不需要）
+                - ``password``: 密码（SQLite 不需要）
 
         Returns:
             DatabaseAdapter 实例，包含 ``run_sql_func`` 和 ``dialect``。
@@ -156,6 +166,8 @@ class DatabaseAdapterFactory:
             "postgresql": DatabaseAdapterFactory._create_postgresql,
             "highgo": DatabaseAdapterFactory._create_highgo,
             "dm": DatabaseAdapterFactory._create_dm,
+            "sqlite": DatabaseAdapterFactory._create_sqlite,
+            "sqlserver": DatabaseAdapterFactory._create_sqlserver,
         }
 
         creator = creators.get(db_type_lower)
@@ -448,3 +460,152 @@ class DatabaseAdapterFactory:
                 _safe_close(cursor, conn)
 
         return DatabaseAdapter(run_sql_func=run_sql, dialect="DM")
+
+    # ------------------------------------------------------------------
+    # SQLite 适配器 — Python 标准库
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _create_sqlite(config: dict) -> DatabaseAdapter:
+        """创建 SQLite 数据库适配器。
+
+        使用 Python 标准库 ``sqlite3`` 模块，无需安装第三方驱动。
+        ``config["database"]`` 字段为 SQLite 文件路径，
+        特殊值 ``:memory:`` 表示内存数据库。
+
+        .. note::
+            SQLite 是嵌入式数据库，无主机、端口、用户、密码概念。
+            仅需 ``database`` 字段（文件路径）即可连接。
+
+            SQLite 方言注意事项:
+                - 使用 ``LIMIT`` 分页（与 MySQL 类似）
+                - 数据类型较少: INTEGER, TEXT, REAL, BLOB, NULL
+                - 无 ``information_schema``，元数据通过 ``sqlite_master`` 查询
+                - 日期函数: ``date()``, ``datetime()``, ``strftime()``
+                - 支持 ``PRAGMA`` 语句查询数据库元信息
+
+            Vanna 的 ``dialect`` 设置为 "SQLite"，LLM 会据此生成 SQLite 兼容 SQL。
+
+        Args:
+            config: 连接配置字典。``database`` 字段为文件路径，
+                未设置时默认为 ``:memory:``（内存数据库）。
+
+        Returns:
+            DatabaseAdapter 实例，方言为 "SQLite"。
+        """
+        import sqlite3
+
+        db_path = config.get("database", ":memory:")
+
+        def run_sql(sql: str) -> pd.DataFrame:
+            """执行 SQLite SQL 语句。
+
+            Args:
+                sql: SQL 语句字符串（SQLite 兼容语法）。
+
+            Returns:
+                SELECT 语句返回查询结果 DataFrame；
+                非 SELECT 语句返回 ``pd.DataFrame({"rows_affected": [N]})``。
+            """
+            conn = None
+            cursor = None
+            try:
+                conn = sqlite3.connect(db_path)
+                conn.row_factory = sqlite3.Row  # 设置行工厂为 Row 对象
+                cursor = conn.cursor()
+                cursor.execute(sql)
+
+                if _is_select_query(sql):
+                    rows = cursor.fetchall()
+                    return pd.DataFrame([dict(r) for r in rows])
+                else:
+                    conn.commit()
+                    return pd.DataFrame({"rows_affected": [cursor.rowcount]})
+            finally:
+                _safe_close(cursor, conn)
+
+        return DatabaseAdapter(run_sql_func=run_sql, dialect="SQLite")
+
+    # ------------------------------------------------------------------
+    # SQL Server 适配器 — pymssql 驱动
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _create_sqlserver(config: dict) -> DatabaseAdapter:
+        """创建 SQL Server 数据库适配器。
+
+        使用 ``pymssql`` 驱动（纯 Python 实现，无需系统级 ODBC 驱动），
+        默认端口 1433，默认用户 ``sa``。
+
+        .. note::
+            pymssql 是纯 Python 驱动，无需安装 ODBC Driver，
+            Dockerfile 无需修改即可使用。
+
+            SQL Server 方言注意事项:
+                - 使用 ``TOP N`` 而非 ``LIMIT N`` 进行分页
+                  （SQL Server 2012+ 也支持 ``OFFSET ... FETCH NEXT``）
+                - 使用 ``GETDATE()`` 而非 ``NOW()`` 获取当前时间
+                - 使用 ``ISNULL()`` 而非 ``COALESCE()`` 或 ``IFNULL()``
+                - 字符串连接使用 ``+`` 运算符
+                - 使用方括号 ``[]`` 作为标识符引用
+                - 数据字典通过 ``sys.tables``, ``INFORMATION_SCHEMA.TABLES`` 查询
+                - 支持 ``EXEC`` / ``EXECUTE`` 语句执行存储过程
+
+            Vanna 的 ``dialect`` 设置为 "SQL Server"，LLM 会据此生成 T-SQL 兼容 SQL。
+
+        安装方式:
+            pip install pymssql
+
+        Args:
+            config: 连接配置字典。``user`` 未设置时默认为 ``sa``。
+
+        Returns:
+            DatabaseAdapter 实例，方言为 "SQL Server"。
+        """
+        import pymssql
+
+        # SQL Server 默认用户为 sa
+        user = config.get("user") or "sa"
+
+        def run_sql(sql: str) -> pd.DataFrame:
+            """执行 SQL Server SQL 语句（T-SQL 方言）。
+
+            Args:
+                sql: SQL 语句字符串（T-SQL 兼容语法）。
+
+            Returns:
+                SELECT 语句返回查询结果 DataFrame；
+                非 SELECT 语句返回 ``pd.DataFrame({"rows_affected": [N]})``。
+            """
+            conn = None
+            cursor = None
+            try:
+                conn = pymssql.connect(
+                    server=config["host"],
+                    port=int(config.get("port", 1433)),
+                    database=config["database"],
+                    user=user,
+                    password=config["password"],
+                    charset="utf8",
+                )
+                cursor = conn.cursor()
+                cursor.execute(sql)
+
+                if _is_select_query(sql):
+                    # pymssql 游标返回 tuple，需从 description 提取列名
+                    columns = (
+                        [desc[0] for desc in cursor.description]
+                        if cursor.description
+                        else []
+                    )
+                    rows = cursor.fetchall()
+                    return pd.DataFrame(
+                        [tuple(row) for row in rows], columns=columns
+                    )
+                else:
+                    conn.commit()
+                    return pd.DataFrame({"rows_affected": [cursor.rowcount]})
+            finally:
+                _safe_close(cursor, conn)
+
+        return DatabaseAdapter(run_sql_func=run_sql, dialect="SQL Server")

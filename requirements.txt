@@ -20,6 +20,11 @@ psycopg2-binary>=2.9.9
 # whl 包内置 DPI 运行时，无需额外安装达梦数据库软件
 dmPython>=2.5.38
 
+# SQLite: Python 标准库 sqlite3 模块，无需额外安装
+
+# SQL Server: pymssql 驱动（纯 Python 实现，无需系统级 ODBC 驱动）
+pymssql>=2.2.0
+
 # --- LLM / AI ---
 openai>=1.0.0
 

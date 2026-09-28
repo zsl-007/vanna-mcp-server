@@ -33,7 +33,7 @@
 
 - **自然语言问数**：用户用自然语言提问，系统自动生成 SQL、执行查询并返回结果
 - **RAG 训练**：通过 DDL、文档和 SQL 示例训练，持续提升 SQL 生成质量
-- **多数据库支持**：MySQL、PostgreSQL、瀚高（HighGo）、达梦（DM）四种数据库
+- **多数据库支持**：MySQL、PostgreSQL、瀚高（HighGo）、达梦（DM）、SQLite、SQL Server 六种数据库
 - **国密认证**：支持瀚高数据库 SM3 国密认证方式
 - **标准化接口**：通过 MCP 协议暴露 9 个工具，任何 MCP 客户端均可接入
 
@@ -57,12 +57,16 @@
 │              config.py (配置管理)             │               │
 │              DatabaseAdapterFactory           │               │
 │                         ┌────────────────────┘               │
-│           ┌─────────────┼─────────────┐                      │
-│           ▼             ▼             ▼                      │
-│     ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐    │
-│     │  MySQL   │ │PostgreSQL│ │  HighGo  │ │  达梦DM  │    │
-│     │(PyMySQL) │ │(psycopg2)│ │(定制psycopg2)│(dmPython)│   │
-│     └──────────┘ └──────────┘ └──────────┘ └──────────┘    │
+│           ┌───────────┼─────────────┐                       │
+│           ▼           ▼             ▼                       │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
+│  │  MySQL   │ │PostgreSQL│ │  HighGo  │ │  达梦DM  │       │
+│  │(PyMySQL) │ │(psycopg2)│ │(定制psycopg2)│(dmPython)│      │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘       │
+│  ┌──────────┐ ┌──────────────┐                              │
+│  │  SQLite  │ │  SQL Server  │                              │
+│  │(sqlite3) │ │  (pymssql)   │                              │
+│  └──────────┘ └──────────────┘                              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -72,7 +76,7 @@
 vanna-mcp-server/
 ├── server.py              # MCP Server 主入口（FastMCP + Starlette ASGI）
 ├── vanna_instance.py      # Vanna 实例初始化（多数据库动态注入）
-├── database_adapter.py    # 多数据库适配器工厂（MySQL/PG/瀚高/达梦）
+├── database_adapter.py    # 多数据库适配器工厂（MySQL/PG/瀚高/达梦/SQLite/SQLServer）
 ├── config.py              # 配置管理（环境变量 + YAML 双模式）
 ├── requirements.txt       # Python 依赖
 ├── run.sh                 # 启动脚本（含依赖检查和环境变量加载）
@@ -95,6 +99,8 @@ vanna-mcp-server/
 | PostgreSQL | psycopg2 | 5432 | postgres | PostgreSQL | ❌ |
 | 瀚高 (HighGo) | 瀚高定制版 psycopg2 | 5866 | sysdba | PostgreSQL | ✅ SM3 |
 | 达梦 (DM) | dmPython | 5236 | SYSDBA | DM (Oracle 兼容) | ❌ |
+| SQLite | sqlite3 (标准库) | 无 | 无 | SQLite | ❌ |
+| SQL Server | pymssql | 1433 | sa | SQL Server (T-SQL) | ❌ |
 
 ### SM3 国密认证
 
@@ -135,7 +141,7 @@ vanna-mcp-server/
 ### 前置条件
 
 - Python 3.11+
-- 目标数据库（MySQL / PostgreSQL / 瀚高 / 达梦）已部署并可访问
+- 目标数据库（MySQL / PostgreSQL / 瀚高 / 达梦 / SQLite / SQL Server）已部署并可访问
 - OpenAI API Key（或其他兼容 LLM 的 API Key）
 
 ### 安装依赖
@@ -229,7 +235,7 @@ curl http://localhost:8000/vanna/mcp
 
 | 变量名 | 必填 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `DB_TYPE` | ✅ | `postgresql` | 数据库类型：`mysql` / `postgresql` / `highgo` / `dm` |
+| `DB_TYPE` | ✅ | `postgresql` | 数据库类型：`mysql` / `postgresql` / `highgo` / `dm` / `sqlite` / `sqlserver` |
 | `DB_HOST` | ✅ | `127.0.0.1` | 数据库主机地址 |
 | `DB_PORT` | ✅ | 按类型自动 | 数据库端口（未设置时按 DB_TYPE 自动填充默认端口） |
 | `DB_NAME` | ✅ | - | 数据库名称（达梦中为 schema 名） |
@@ -253,6 +259,8 @@ curl http://localhost:8000/vanna/mcp
 | `postgresql` | 5432 | postgres |
 | `highgo` | 5866 | sysdba |
 | `dm` | 5236 | SYSDBA |
+| `sqlite` | 无（0） | 无 |
+| `sqlserver` | 1433 | sa |
 
 ### 4.2 YAML 配置文件（可选）
 
@@ -405,16 +413,45 @@ DB_PASSWORD=your_password
 
 > **注意**：达梦数据库使用 Oracle 兼容 SQL 方言，与 PostgreSQL 有显著差异（使用 `DUAL` 伪表、`ROWNUM` 分页、默认大写敏感等）。Vanna 的 `dialect` 会自动设为 `"DM"`，LLM 生成 SQL 时会参考此方言。
 
-### 5.5 数据库连接参数汇总
+### 5.5 SQLite
 
-| 参数 | MySQL | PostgreSQL | 瀚高 | 达梦 |
-|------|-------|-----------|------|------|
-| 默认端口 | 3306 | 5432 | 5866 | 5236 |
-| 默认用户 | root | postgres | sysdba | SYSDBA |
-| Python 驱动 | PyMySQL | psycopg2 | 瀚高定制版 psycopg2 | dmPython |
-| PyPI 安装 | ✅ | ✅ | ❌（官方下载） | ✅ |
-| SQL 方言 | MySQL | PostgreSQL | PostgreSQL | DM (Oracle 兼容) |
-| 国密认证 | ❌ | ❌ | ✅ SM3 | ❌ |
+```bash
+# .env 配置
+DB_TYPE=sqlite
+# SQLite 无需 host/port/user/password，只需 DB_NAME 指定文件路径
+DB_NAME=/path/to/your.db    # SQLite 文件路径（:memory: 为内存数据库）
+```
+
+驱动：Python 标准库 `sqlite3`（无需额外安装），dialect 自动设为 `"SQLite"`。
+
+> **注意**：SQLite 是嵌入式数据库，无主机、端口、用户、密码概念。`DB_NAME` 字段指定数据库文件路径，特殊值 `:memory:` 表示内存数据库。SQLite 使用 `LIMIT` 分页，元数据通过 `sqlite_master` 表查询，支持 `PRAGMA` 语句查询数据库元信息。
+
+### 5.6 SQL Server
+
+```bash
+# .env 配置
+DB_TYPE=sqlserver
+DB_HOST=192.168.1.100
+DB_PORT=1433              # SQL Server 默认端口
+DB_NAME=mydb
+DB_USER=sa                # SQL Server 默认用户
+DB_PASSWORD=your_password
+```
+
+驱动：pymssql（纯 Python 实现，无需系统级 ODBC 驱动），dialect 自动设为 `"SQL Server"`。
+
+> **注意**：SQL Server 使用 T-SQL 方言，与 PostgreSQL 有显著差异（使用 `TOP N` 分页、`GETDATE()` 获取时间、`ISNULL()` 空值处理、`[]` 标识符引用等）。pymssql 是纯 Python 驱动，无需安装 ODBC Driver，Dockerfile 无需修改。Vanna 的 `dialect` 会自动设为 `"SQL Server"`，LLM 生成 SQL 时会参考此方言。
+
+### 5.7 数据库连接参数汇总
+
+| 参数 | MySQL | PostgreSQL | 瀚高 | 达梦 | SQLite | SQL Server |
+|------|-------|-----------|------|------|--------|------------|
+| 默认端口 | 3306 | 5432 | 5866 | 5236 | 无 | 1433 |
+| 默认用户 | root | postgres | sysdba | SYSDBA | 无 | sa |
+| Python 驱动 | PyMySQL | psycopg2 | 瀚高定制版 psycopg2 | dmPython | sqlite3 (标准库) | pymssql |
+| PyPI 安装 | ✅ | ✅ | ❌（官方下载） | ✅ | ✅ (标准库) | ✅ |
+| SQL 方言 | MySQL | PostgreSQL | PostgreSQL | DM (Oracle 兼容) | SQLite | SQL Server (T-SQL) |
+| 国密认证 | ❌ | ❌ | ✅ SM3 | ❌ | ❌ | ❌ |
 
 ---
 
@@ -907,6 +944,8 @@ DB_TYPE=mysql      # 切换到 MySQL
 DB_TYPE=postgresql # 切换到 PostgreSQL
 DB_TYPE=highgo     # 切换到瀚高
 DB_TYPE=dm         # 切换到达梦
+DB_TYPE=sqlite     # 切换到 SQLite
+DB_TYPE=sqlserver  # 切换到 SQL Server
 ```
 
 未显式设置 `DB_PORT` 和 `DB_USER` 时，系统会根据 `DB_TYPE` 自动填充对应默认值。ChromaDB 训练数据也会按数据库类型自动隔离（`./chromadb_data_{db_type}`）。
