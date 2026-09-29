@@ -39,7 +39,7 @@ RUN echo "deb [arch=amd64] http://snapshot.debian.org/archive/debian/20260825T00
     echo "deb [arch=amd64] http://snapshot.debian.org/archive/debian/20260825T000000Z bullseye-updates main contrib non-free" >> /etc/apt/sources.list && \
     echo "deb [arch=amd64] http://snapshot.debian.org/archive/debian-security/20260825T000000Z bullseye-security main contrib non-free" >> /etc/apt/sources.list && \
     echo "Acquire::Check-Valid-Until \"false\";" > /etc/apt/apt.conf.d/99no-check-valid-until
-    
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     libldap-2.4-2 \
@@ -125,6 +125,19 @@ RUN python -c "import psycopg2; print('HighGo psycopg2:', psycopg2.__version__)"
 #   - 必须同时安装瀚高定制版 libpq.so.5
 #   - LD_LIBRARY_PATH 需指向瀚高 libpq 路径（已在上方 ENV 中配置）
 #   - Python 层面无需额外配置，SM3 认证由 libpq C 层自动处理
+
+# ============================================================
+# 复制chroma向量模型，训练模型时会用到
+# ============================================================
+
+# 创建目标目录
+RUN mkdir -p /root/.cache/chroma/onnx_models/all-MiniLM-L6-v2
+
+# 复制模型压缩包 (假设文件在当前上下文的 models/ 目录下)
+COPY models/onnx.tar.gz /root/.cache/chroma/onnx_models/all-MiniLM-L6-v2/
+
+# 进入目录并解压
+RUN cd /root/.cache/chroma/onnx_models/all-MiniLM-L6-v2/ && tar -xzf onnx.tar.gz
 
 # ============================================================
 # 复制项目源码
