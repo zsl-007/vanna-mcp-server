@@ -3,7 +3,12 @@
 # 多数据库智能问数 MCP 服务（MySQL / PostgreSQL / 瀚高 / 达梦）
 # ============================================================
 
-FROM python:3.11-slim
+# FROM python:3.11-slim
+# 错误原因：Debian 版本与瀚高 libpq 的依赖不匹配
+# python:3.11-slim 目前基于 Debian bookworm（12），自带 OpenLDAP 2.5，soname 是 libldap-2.5.so.0。
+# 而瀚高的 libpq.so.5 是在 RHEL/CentOS 7 风格环境编译的（从第二个包里 libssl.so.10、libcrypto.so.10 也能看出这一点），它链接的是 OpenLDAP 2.4，soname 是 libldap_r-2.4.so.2。
+# 两者 soname 不同，不能简单用符号链接糊过去（ABI 也不同）。推荐直接换基础镜像为 python:3.11-slim-bullseye，Bullseye（Debian 11）自带 libldap-2.4-2，正好匹配。
+FROM python:3.11-slim-bullseye
 
 # 设置工作目录
 WORKDIR /app
@@ -19,10 +24,28 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # - libpq-dev: PostgreSQL 开发库（psycopg2 编译依赖）
 # - gcc: C 编译器（部分 Python 包需要编译）
 # - curl: 健康检查工具
+
+#RUN apt-get update && apt-get install -y --no-install-recommends \
+#    libpq-dev \
+#    gcc \
+#    curl \
+#    && rm -rf /var/lib/apt/lists/*
+
+# ============================================================
+# 临时修复：锁定 Debian Bullseye Snapshot 源
+# 解决 bullseye-security 仓库 404 问题
+# ============================================================
+RUN echo "deb [arch=amd64] http://snapshot.debian.org/archive/debian/20260825T000000Z bullseye main contrib non-free" > /etc/apt/sources.list && \
+    echo "deb [arch=amd64] http://snapshot.debian.org/archive/debian/20260825T000000Z bullseye-updates main contrib non-free" >> /etc/apt/sources.list && \
+    echo "deb [arch=amd64] http://snapshot.debian.org/archive/debian-security/20260825T000000Z bullseye-security main contrib non-free" >> /etc/apt/sources.list && \
+    echo "Acquire::Check-Valid-Until \"false\";" > /etc/apt/apt.conf.d/99no-check-valid-until
+    
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
-    gcc \
-    curl \
+    libldap-2.4-2 \
+    libldap-common \
+    libsasl2-2 \
+    libssl1.1 \
     && rm -rf /var/lib/apt/lists/*
 
 # ============================================================
@@ -46,19 +69,26 @@ RUN python -c "import site; print(site.getsitepackages())"
 RUN pip uninstall -y psycopg2-binary || true
 
 # 复制 Python 3.11 的 psycopg2 包本体
-COPY /home/vanna/highgo-drivers/psycopg2 /usr/local/lib/python3.11/site-packages/psycopg2
+COPY highgo-drivers/psycopg2 /usr/local/lib/python3.11/site-packages/psycopg2
 
 # 复制瀚高定制版 libpq 及国密动态库
-COPY /home/vanna/highgo-drivers/libpq.so.5     /opt/highgo/lib/
-COPY /home/vanna/highgo-drivers/libssl.so.10   /opt/highgo/lib/
-COPY /home/vanna/highgo-drivers/libcrypto.so.10 /opt/highgo/lib/
-COPY /home/vanna/highgo-drivers/libgmssl.so.3  /opt/highgo/lib/
+COPY highgo-drivers/libpq.so.5     /opt/highgo/lib/
+COPY highgo-drivers/libssl.so.10   /opt/highgo/lib/
+COPY highgo-drivers/libcrypto.so.10 /opt/highgo/lib/
+COPY highgo-drivers/libgmssl.so.3  /opt/highgo/lib/
 
 # 让动态链接器找到这些库
 RUN echo "/opt/highgo/lib" > /etc/ld.so.conf.d/highgo.conf && ldconfig
 
 # 可选：设置运行时库路径，双保险
-ENV LD_LIBRARY_PATH=/opt/highgo/lib:$LD_LIBRARY_PATH
+#ENV LD_LIBRARY_PATH=/opt/highgo/lib:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/opt/highgo/lib
+
+# 检查 _psycopg.so 依赖
+RUN ldd /usr/local/lib/python3.11/site-packages/psycopg2/_psycopg*.so | grep 'not found' && exit 1 || true
+
+# 检查瀚高 libpq 依赖
+RUN ldd /opt/highgo/lib/libpq.so.5 | grep 'not found' && exit 1 || true
 
 # 验证 psycopg2 可导入
 RUN python -c "import psycopg2; print('HighGo psycopg2:', psycopg2.__version__)"
