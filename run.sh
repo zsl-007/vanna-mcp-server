@@ -9,7 +9,7 @@
 #
 # 环境变量 (可通过 .env 文件或直接设置):
 #   MCP_HOST          监听地址 (默认: 0.0.0.0)
-#   MCP_PORT          监听端口 (默认: 8000)
+#   MCP_PORT          监听端口 (默认: 19099)
 #   MCP_WORKERS       worker 进程数 (默认: 1)
 #   VANNA_MOCK_MODE   设为 1 启用模拟模式 (无 Vanna 实例, 用于接口测试)
 #
@@ -51,7 +51,7 @@ echo ""
 
 # 配置参数 (带默认值)
 MCP_HOST="${MCP_HOST:-0.0.0.0}"
-MCP_PORT="${MCP_PORT:-8000}"
+MCP_PORT="${MCP_PORT:-19099}"
 MCP_WORKERS="${MCP_WORKERS:-1}"
 VANNA_MOCK_MODE="${VANNA_MOCK_MODE:-0}"
 
@@ -76,7 +76,7 @@ while [[ $# -gt 0 ]]; do
             echo "选项:"
             echo "  --workers N    worker 进程数 (默认: 1)"
             echo "  --host HOST    监听地址 (默认: 0.0.0.0)"
-            echo "  --port PORT    监听端口 (默认: 8000)"
+            echo "  --port PORT    监听端口 (默认: 19099)"
             echo ""
             echo "环境变量:"
             echo "  MCP_HOST, MCP_PORT, MCP_WORKERS, VANNA_MOCK_MODE"

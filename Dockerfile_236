@@ -33,6 +33,10 @@ COPY requirements.txt .
 
 RUN pip install -r requirements.txt
 
+# ============================================================
+# 瀚高定制版 psycopg2 特殊处理
+# ============================================================
+
 #验证基础镜像 Python 路径
 RUN echo "基础镜像 Python 路径"
 #RUN python -c "print('基础镜像 Python 路径')"
@@ -58,6 +62,10 @@ ENV LD_LIBRARY_PATH=/opt/highgo/lib:$LD_LIBRARY_PATH
 
 # 验证 psycopg2 可导入
 RUN python -c "import psycopg2; print('HighGo psycopg2:', psycopg2.__version__)"
+
+# ============================================================
+# 瀚高定制版 psycopg2 特殊处理
+# ============================================================
 
 # ============================================================
 # 瀚高定制版 psycopg2 特殊处理
