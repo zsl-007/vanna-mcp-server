@@ -646,6 +646,22 @@ logger.info("Starlette ASGI app configured: mount=/vanna, endpoint=/vanna/mcp, C
 # 启动入口
 # ============================================================================
 if __name__ == "__main__":
+
+    from license2 import generate_machine_code, license_auth
+    # 首次启动自动生成 installation.key，并计算机器码
+    try:
+        machine_code = generate_machine_code()
+        logger.info("设备机器码: %s", machine_code)
+    except Exception as exc:
+        logger.exception("设备身份初始化失败")
+        sys.exit(1)
+    # 验证授权
+    result_auth = license_auth()
+    if result_auth["code"] != 1:
+        logger.error("授权验证失败：%s", result_auth["result"]["message"])
+        sys.exit(1)
+    logger.info("授权验证通过")    
+
     # 方式1: 直接运行 (开发模式)
     # python server.py
     #

@@ -3,7 +3,12 @@
 # 多数据库智能问数 MCP 服务（MySQL / PostgreSQL / 瀚高 / 达梦）
 # ============================================================
 
-FROM python:3.11-slim
+# FROM python:3.11-slim
+# 错误原因：Debian 版本与瀚高 libpq 的依赖不匹配
+# python:3.11-slim 目前基于 Debian bookworm（12），自带 OpenLDAP 2.5，soname 是 libldap-2.5.so.0。
+# 而瀚高的 libpq.so.5 是在 RHEL/CentOS 7 风格环境编译的（从第二个包里 libssl.so.10、libcrypto.so.10 也能看出这一点），它链接的是 OpenLDAP 2.4，soname 是 libldap_r-2.4.so.2。
+# 两者 soname 不同，不能简单用符号链接糊过去（ABI 也不同）。推荐直接换基础镜像为 python:3.11-slim-bullseye，Bullseye（Debian 11）自带 libldap-2.4-2，正好匹配。
+FROM python:3.11-slim-bullseye
 
 # 设置工作目录
 WORKDIR /app
@@ -19,10 +24,28 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # - libpq-dev: PostgreSQL 开发库（psycopg2 编译依赖）
 # - gcc: C 编译器（部分 Python 包需要编译）
 # - curl: 健康检查工具
+
+#RUN apt-get update && apt-get install -y --no-install-recommends \
+#    libpq-dev \
+#    gcc \
+#    curl \
+#    && rm -rf /var/lib/apt/lists/*
+
+# ============================================================
+# 临时修复：锁定 Debian Bullseye Snapshot 源
+# 解决 bullseye-security 仓库 404 问题
+# ============================================================
+RUN echo "deb [arch=amd64] http://snapshot.debian.org/archive/debian/20260825T000000Z bullseye main contrib non-free" > /etc/apt/sources.list && \
+    echo "deb [arch=amd64] http://snapshot.debian.org/archive/debian/20260825T000000Z bullseye-updates main contrib non-free" >> /etc/apt/sources.list && \
+    echo "deb [arch=amd64] http://snapshot.debian.org/archive/debian-security/20260825T000000Z bullseye-security main contrib non-free" >> /etc/apt/sources.list && \
+    echo "Acquire::Check-Valid-Until \"false\";" > /etc/apt/apt.conf.d/99no-check-valid-until
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
-    gcc \
-    curl \
+    libldap-2.4-2 \
+    libldap-common \
+    libsasl2-2 \
+    libssl1.1 \
     && rm -rf /var/lib/apt/lists/*
 
 # ============================================================
@@ -33,6 +56,23 @@ COPY requirements.txt .
 
 RUN pip install -r requirements.txt
 
+# ============================================================
+# python:3.11-slim-bullseye 自带的 SQLite 版本为 3.34.1，低于 ChromaDB 要求的 3.35.0 及以上版本
+# 在 Dockerfile 中强制安装 pysqlite3 并在 chromadb/__init__.py 中注入
+# 直接修改容器内 chromadb 包的初始化文件。这种方法较为“侵入式”，但确实有效
+# ============================================================
+
+# 安装 pysqlite3-binary
+RUN pip install pysqlite3-binary==0.5.4
+
+# 修改 chromadb 的 __init__.py，在顶部注入 sqlite3 替换逻辑
+RUN sed -i "1i __import__('pysqlite3')\nimport sys\nsys.modules['sqlite3'] = sys.modules.pop('pysqlite3')" \
+    /usr/local/lib/python3.11/site-packages/chromadb/__init__.py
+
+# ============================================================
+# 瀚高定制版 psycopg2 特殊处理
+# ============================================================
+
 #验证基础镜像 Python 路径
 RUN echo "基础镜像 Python 路径"
 #RUN python -c "print('基础镜像 Python 路径')"
@@ -42,22 +82,33 @@ RUN python -c "import site; print(site.getsitepackages())"
 RUN pip uninstall -y psycopg2-binary || true
 
 # 复制 Python 3.11 的 psycopg2 包本体
-COPY /home/vanna/highgo-drivers/psycopg2 /usr/local/lib/python3.11/site-packages/psycopg2
+COPY highgo-drivers/psycopg2 /usr/local/lib/python3.11/site-packages/psycopg2
 
 # 复制瀚高定制版 libpq 及国密动态库
-COPY /home/vanna/highgo-drivers/libpq.so.5     /opt/highgo/lib/
-COPY /home/vanna/highgo-drivers/libssl.so.10   /opt/highgo/lib/
-COPY /home/vanna/highgo-drivers/libcrypto.so.10 /opt/highgo/lib/
-COPY /home/vanna/highgo-drivers/libgmssl.so.3  /opt/highgo/lib/
+COPY highgo-drivers/libpq.so.5     /opt/highgo/lib/
+COPY highgo-drivers/libssl.so.10   /opt/highgo/lib/
+COPY highgo-drivers/libcrypto.so.10 /opt/highgo/lib/
+COPY highgo-drivers/libgmssl.so.3  /opt/highgo/lib/
 
 # 让动态链接器找到这些库
 RUN echo "/opt/highgo/lib" > /etc/ld.so.conf.d/highgo.conf && ldconfig
 
 # 可选：设置运行时库路径，双保险
-ENV LD_LIBRARY_PATH=/opt/highgo/lib:$LD_LIBRARY_PATH
+#ENV LD_LIBRARY_PATH=/opt/highgo/lib:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/opt/highgo/lib
+
+# 检查 _psycopg.so 依赖
+RUN ldd /usr/local/lib/python3.11/site-packages/psycopg2/_psycopg*.so | grep 'not found' && exit 1 || true
+
+# 检查瀚高 libpq 依赖
+RUN ldd /opt/highgo/lib/libpq.so.5 | grep 'not found' && exit 1 || true
 
 # 验证 psycopg2 可导入
 RUN python -c "import psycopg2; print('HighGo psycopg2:', psycopg2.__version__)"
+
+# ============================================================
+# 瀚高定制版 psycopg2 特殊处理
+# ============================================================
 
 # ============================================================
 # 瀚高定制版 psycopg2 特殊处理
@@ -89,16 +140,41 @@ RUN python -c "import psycopg2; print('HighGo psycopg2:', psycopg2.__version__)"
 #   - Python 层面无需额外配置，SM3 认证由 libpq C 层自动处理
 
 # ============================================================
+# 复制 chroma 向量模型（放到 vanna 用户的 HOME 下）
+# ============================================================
+
+# 先创建 vanna 用户（注意：把 useradd 提前到这里）
+RUN useradd -m -u 1000 vanna
+
+# 创建 vanna 用户的 ChromaDB 模型缓存目录
+RUN mkdir -p /home/vanna/.cache/chroma/onnx_models/all-MiniLM-L6-v2
+
+# 复制模型压缩包
+COPY models/onnx.tar.gz /home/vanna/.cache/chroma/onnx_models/all-MiniLM-L6-v2/
+
+# 解压 + 删除压缩包
+RUN cd /home/vanna/.cache/chroma/onnx_models/all-MiniLM-L6-v2/ && \
+    tar -xzf onnx.tar.gz && \
+    rm onnx.tar.gz
+
+# 确保 vanna 用户拥有该目录
+RUN chown -R vanna:vanna /home/vanna/.cache
+
+# ============================================================
 # 复制项目源码
 # ============================================================
 COPY server.py vanna_instance.py config.py database_adapter.py ./
 COPY run.sh ./
 
-# 设置启动脚本权限
-RUN chmod +x run.sh
+# 创建授权文件目录（文件将在运行时挂载）
+RUN mkdir -p /app/license
 
-# 创建非 root 用户（安全最佳实践）
-RUN useradd -m -u 1000 vanna && chown -R vanna:vanna /app
+# 设置启动脚本权限
+RUN chmod +x run.sh && chown -R vanna:vanna /app
+
+# 显式设置 HOME，防止基础镜像未自动更新
+ENV HOME=/home/vanna
+
 USER vanna
 
 # 暴露 MCP 服务端口
