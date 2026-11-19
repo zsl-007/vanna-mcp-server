@@ -166,11 +166,26 @@ RUN chown -R vanna:vanna /home/vanna/.cache
 COPY server.py vanna_instance.py config.py database_adapter.py ./
 COPY run.sh ./
 
-# 创建授权文件目录（文件将在运行时挂载）
-RUN mkdir -p /app/license
+# ============================================================
+# 初始化运行时数据目录
+# ============================================================
+
+RUN mkdir -p \
+    /app/license \
+    /app/chromadb_data \
+    /app/chromadb_data_postgresql \
+    /app/chromadb_data_highgo \
+    /app/chromadb_data_mysql \
+    /app/chromadb_data_dm \
+    && chown -R vanna:vanna /app \
+    && chmod 750 /app/chromadb_data \
+    && chmod 750 /app/chromadb_data_postgresql \
+    && chmod 750 /app/chromadb_data_highgo \
+    && chmod 750 /app/chromadb_data_mysql \
+    && chmod 750 /app/chromadb_data_dm
 
 # 设置启动脚本权限
-RUN chmod +x run.sh && chown -R vanna:vanna /app
+RUN chmod +x /app/run.sh
 
 # 显式设置 HOME，防止基础镜像未自动更新
 ENV HOME=/home/vanna
@@ -186,4 +201,4 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=15s \
 
 # 启动命令 — 使用 uvicorn 多 worker 部署
 # server:app 指向 server.py 文件中的 app 变量（Starlette ASGI 应用）
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
