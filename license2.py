@@ -27,7 +27,7 @@ from pathlib import Path
 BASE_DIR = Path(
     os.getenv(
         "BASE_DIR",
-        str(Path(__file__).resolve().parents[2]),
+        str(Path(__file__).resolve().parents),
     )
 ).resolve()
 LICENSE_DIR = BASE_DIR / "license"
