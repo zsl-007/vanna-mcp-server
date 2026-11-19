@@ -163,7 +163,7 @@ RUN chown -R vanna:vanna /home/vanna/.cache
 # ============================================================
 # 复制项目源码
 # ============================================================
-COPY server.py vanna_instance.py config.py database_adapter.py ./
+COPY server.py vanna_instance.py config.py database_adapter.py license2.py ./
 COPY run.sh ./
 
 # ============================================================
@@ -189,6 +189,7 @@ RUN chmod +x /app/run.sh
 
 # 显式设置 HOME，防止基础镜像未自动更新
 ENV HOME=/home/vanna
+ENV BASE_DIR=/app
 
 USER vanna
 

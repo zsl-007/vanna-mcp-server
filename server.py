@@ -220,6 +220,32 @@ def _format_error(error: Exception) -> str:
         ensure_ascii=False,
     )
 
+# ============================================================================
+# License 授权验证
+# ============================================================================
+
+def verify_license_or_exit():
+    """启动时验证设备身份和软件授权。"""
+
+    from license2 import generate_machine_code, license_auth
+
+    # 首次启动自动生成 installation.key，并计算机器码
+    try:
+        machine_code = generate_machine_code()
+        logger.info("设备机器码: %s", machine_code)
+    except Exception:
+        logger.exception("设备身份初始化失败")
+        raise RuntimeError("设备身份初始化失败，服务无法启动")
+
+    # 验证授权
+    result_auth = license_auth()
+
+    if result_auth["code"] != 1:
+        message = result_auth["result"]["message"]
+        logger.error("授权验证失败：%s", message)
+        raise RuntimeError(f"授权验证失败：{message}")
+
+    logger.info("授权验证通过")
 
 # ============================================================================
 # MCP Server 创建
@@ -576,7 +602,6 @@ from starlette.applications import Starlette
 from starlette.routing import Mount
 from starlette.middleware.cors import CORSMiddleware
 
-
 @contextlib.asynccontextmanager
 async def lifespan(app: Starlette):
     """管理 Vanna 实例和 MCP 会话的生命周期。
@@ -592,23 +617,45 @@ async def lifespan(app: Starlette):
     Args:
         app: Starlette ASGI 应用实例
     """
+
     global _vanna_instance
 
-    logger.info("Lifespan: creating Vanna instance...")
+    # ========================================================
+    # 第一步：授权验证
+    # ========================================================
+    logger.info("Lifespan: starting license verification...")
+
     try:
-        # create_vanna() 默认从 get_config() 加载配置 (环境变量 / YAML)
-        # 也可传入显式 AppConfig: create_vanna(config=app_config)
+        verify_license_or_exit()
+    except Exception:
+        logger.exception("Lifespan: license verification failed, server startup aborted")
+        raise
+
+    # ========================================================
+    # 第二步：创建 Vanna 实例
+    # ========================================================
+    logger.info("Lifespan: creating Vanna instance...")
+
+    try:
         _vanna_instance = create_vanna()
+
         logger.info(
             "Lifespan: Vanna instance created successfully (dialect=%s, run_sql_is_set=%s)",
             getattr(_vanna_instance, "dialect", "unknown"),
             getattr(_vanna_instance, "run_sql_is_set", False),
         )
+
     except Exception as e:
-        logger.error("Lifespan: failed to create Vanna instance: %s\n%s", e, traceback.format_exc())
+        logger.error(
+            "Lifespan: failed to create Vanna instance: %s\n%s",
+            e,
+            traceback.format_exc(),
+        )
         raise
 
-    # 启动 MCP 会话管理器 (即使在 stateless 模式下也需要初始化)
+    # ========================================================
+    # 第三步：启动 MCP 会话管理器
+    # ========================================================
     async with mcp.session_manager.run():
         logger.info("Lifespan: MCP session manager started")
         yield
@@ -617,7 +664,6 @@ async def lifespan(app: Starlette):
     # 清理
     _vanna_instance = None
     logger.info("Lifespan: Vanna instance cleaned up")
-
 
 # 创建 Starlette ASGI 应用
 # MCP 端点挂载到 /vanna 路径, 内部 streamable_http_path=/mcp
@@ -646,21 +692,6 @@ logger.info("Starlette ASGI app configured: mount=/vanna, endpoint=/vanna/mcp, C
 # 启动入口
 # ============================================================================
 if __name__ == "__main__":
-
-    from license2 import generate_machine_code, license_auth
-    # 首次启动自动生成 installation.key，并计算机器码
-    try:
-        machine_code = generate_machine_code()
-        logger.info("设备机器码: %s", machine_code)
-    except Exception as exc:
-        logger.exception("设备身份初始化失败")
-        sys.exit(1)
-    # 验证授权
-    result_auth = license_auth()
-    if result_auth["code"] != 1:
-        logger.error("授权验证失败：%s", result_auth["result"]["message"])
-        sys.exit(1)
-    logger.info("授权验证通过")    
 
     # 方式1: 直接运行 (开发模式)
     # python server.py

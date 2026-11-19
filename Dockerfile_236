@@ -91,7 +91,7 @@ RUN python -c "import psycopg2; print('HighGo psycopg2:', psycopg2.__version__)"
 # ============================================================
 # 复制项目源码
 # ============================================================
-COPY server.py vanna_instance.py config.py database_adapter.py ./
+COPY server.py vanna_instance.py config.py database_adapter.py license2.py ./
 COPY run.sh ./
 
 # ============================================================
@@ -114,6 +114,10 @@ RUN mkdir -p \
 
 # 设置启动脚本权限
 RUN chmod +x /app/run.sh
+
+# 显式设置 HOME，防止基础镜像未自动更新
+ENV HOME=/home/vanna
+ENV BASE_DIR=/app
 
 # 创建非 root 用户（安全最佳实践）
 RUN useradd -m -u 1000 vanna && chown -R vanna:vanna /app
