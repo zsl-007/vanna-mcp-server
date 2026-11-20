@@ -163,7 +163,7 @@ RUN chown -R vanna:vanna /home/vanna/.cache
 # ============================================================
 # 复制项目源码
 # ============================================================
-COPY server.py vanna_instance.py config.py database_adapter.py license2.py ./
+COPY server.pyc vanna_instance.pyc config.pyc database_adapter.pyc license2.pyc ./
 COPY run.sh ./
 
 # ============================================================
