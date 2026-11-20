@@ -172,12 +172,14 @@ COPY run.sh ./
 
 RUN mkdir -p \
     /app/license \
+    /app/data \
     /app/chromadb_data \
     /app/chromadb_data_postgresql \
     /app/chromadb_data_highgo \
     /app/chromadb_data_mysql \
     /app/chromadb_data_dm \
     && chown -R vanna:vanna /app \
+    && chmod 750 /app/data \
     && chmod 750 /app/chromadb_data \
     && chmod 750 /app/chromadb_data_postgresql \
     && chmod 750 /app/chromadb_data_highgo \

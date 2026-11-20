@@ -34,7 +34,15 @@ LICENSE_DIR = BASE_DIR / "license"
 
 logger = logging.getLogger(__name__)
 
-INSTALLATION_KEY_PATH = LICENSE_DIR / "installation.key"
+#INSTALLATION_KEY_PATH = LICENSE_DIR / "installation.key"
+# 安装密钥单独保存到持久化数据目录
+INSTALLATION_KEY_PATH = Path(
+    os.getenv(
+        "INSTALLATION_KEY_PATH",
+        str(BASE_DIR / "data" / "installation.key"),
+    )
+).resolve()
+
 LICENSE_FILE_PATH = LICENSE_DIR / "license.lic"
 PUBLIC_KEY_PATH = LICENSE_DIR / "public_key.pem"
 
